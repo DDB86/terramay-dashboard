@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terramay Weekly Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a18;font-size:15px}
+header{background:#fff;border-bottom:1px solid #e0ded7;padding:1.2rem 2rem;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:18px;font-weight:600}
+header span{font-size:13px;color:#888780}
+.container{max-width:1100px;margin:0 auto;padding:1.5rem 1.5rem 3rem}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.5rem}
+.tab{font-size:13px;padding:6px 14px;border:1px solid #d3d1c7;border-radius:8px;background:#fff;color:#5f5e5a;cursor:pointer;transition:all .15s}
+.tab.on{background:#1a1a18;color:#fff;border-color:#1a1a18}
+.tab:hover:not(.on){background:#f1efe8}
+.sec{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#888780;margin:1.5rem 0 .75rem}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
+.mc{background:#fff;border-radius:10px;border:1px solid #e0ded7;padding:1rem 1.1rem}
+.ml{font-size:11px;color:#888780;margin-bottom:5px}
+.mv{font-size:22px;font-weight:600;color:#1a1a18}
+.ms{font-size:11px;color:#888780;margin-top:3px}
+.pos{color:#1D9E75}.neg{color:#E24B4A}
+.cc{background:#fff;border-radius:12px;border:1px solid #e0ded7;padding:1.25rem 1.25rem 1rem;margin-bottom:1rem}
+.ch{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:.75rem}
+.ct{font-size:13px;font-weight:600;color:#1a1a18}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#5f5e5a}
+.leg span{display:flex;align-items:center;gap:5px}
+.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.cw{position:relative;width:100%}
+.hidden{display:none}
+.prow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.plbl{font-size:12px;color:#5f5e5a;width:110px;flex-shrink:0}
+.pbg{flex:1;height:6px;border-radius:3px;background:#f1efe8;overflow:hidden}
+.pfl{height:100%;border-radius:3px}
+.pval{font-size:12px;font-weight:500;color:#1a1a18;width:80px;text-align:right;flex-shrink:0}
+.loader{text-align:center;padding:3rem;color:#888780;font-size:14px}
+.err{text-align:center;padding:2rem;color:#E24B4A;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Terramay weekly dashboard</h1>
+  <span id="lastUpdated">Loading...</span>
+</header>
+<div class="container">
+  <div id="loadMsg" class="loader">Fetching live data from Google Sheets...</div>
+  <div id="errMsg" class="err hidden"></div>
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button class="tab on" onclick="showTab('overview')">Overview</button>
+      <button class="tab" onclick="showTab('fth')">Farm to Home</button>
+      <button class="tab" onclick="showTab('hospitality')">Hospitality</button>
+      <button class="tab" onclick="showTab('social')">Social & Digital</button>
+    </div>
+
+    <div id="tab-overview">
+      <p class="sec">YTD performance</p>
+      <div class="mg" id="overview-metrics"></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Weekly revenue by business unit</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#378ADD"></span>Agriculture</span>
+            <span><span class="ld" style="background:#1D9E75"></span>Pão & Pizza</span>
+            <span><span class="ld" style="background:#D85A30"></span>Raya</span>
+            <span><span class="ld" style="background:#7F77DD"></span>Farm to Home</span>
+          </div>
+        </div>
+        <div class="cw" style="height:280px"><canvas id="overviewChart"></canvas></div>
+      </div>
+    </div>
+
+    <div id="tab-fth" class="hidden">
+      <p class="sec">Farm to Home — key metrics</p>
+      <div class="mg" id="fth-metrics"></div>
+      <p class="sec">Customer loyalty breakdown</p>
+      <div id="loyalty-bars"></div>
+      <div class="cc" style="margin-top:.75rem">
+        <div class="ch">
+          <span class="ct">Orders & new customers vs target</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#378ADD"></span>Orders</span>
+            <span><span class="ld" style="background:#1D9E75"></span>New customers</span>
+            <span><span class="ld" style="background:#E24B4A;border-radius:50%"></span>Target</span>
+          </div>
+        </div>
+        <div class="cw" style="height:240px"><canvas id="fthChart"></canvas></div>
+      </div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Sessions & conversion rate</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#7F77DD"></span>Mobile</span>
+            <span><span class="ld" style="background:#378ADD"></span>Desktop</span>
+            <span><span class="ld" style="background:#EF9F27;border-radius:50%"></span>Conv. rate %</span>
+          </div>
+        </div>
+        <div class="cw" style="height:220px"><canvas id="convChart"></canvas></div>
+      </div>
+    </div>
+
+    <div id="tab-hospitality" class="hidden">
+      <p class="sec">Pão & Pizza</p>
+      <div class="mg" id="pp-metrics"></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Pão & Pizza — revenue vs plan</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#1D9E75"></span>Actual</span>
+            <span><span class="ld" style="background:#B4B2A9;border-radius:50%"></span>Plan</span>
+          </div>
+        </div>
+        <div class="cw" style="height:240px"><canvas id="ppChart"></canvas></div>
+      </div>
+      <p class="sec">Raya</p>
+      <div class="mg" id="raya-metrics"></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Raya — revenue vs plan</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#D85A30"></span>2026 actual</span>
+            <span><span class="ld" style="background:#B4B2A9;border-radius:50%"></span>2026 plan</span>
+          </div>
+        </div>
+        <div class="cw" style="height:240px"><canvas id="rayaChart"></canvas></div>
+      </div>
+    </div>
+
+    <div id="tab-social" class="hidden">
+      <p class="sec">Social media followers</p>
+      <div class="mg" id="social-metrics"></div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Instagram & Facebook growth</span>
+          <div class="leg">
+            <span><span class="ld" style="background:#D85A30"></span>Instagram</span>
+            <span><span class="ld" style="background:#378ADD"></span>Facebook</span>
+          </div>
+        </div>
+        <div class="cw" style="height:220px"><canvas id="socialChart"></canvas></div>
+      </div>
+      <div class="cc">
+        <div class="ch">
+          <span class="ct">Newsletter open rate</span>
+          <div class="leg"><span><span class="ld" style="background:#7F77DD"></span>Open rate %</span></div>
+        </div>
+        <div class="cw" style="height:180px"><canvas id="nlChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR5iFDFdh48EpGQRuVMTlvLRbBJDpQTP7F8d9yLef3DX5h7WVYwY8tQJLVPk20My9CqiGj5U7TKtMkn/pub?gid=376261813&single=true&output=csv';
+
+const charts = {};
+const xTicks = {font:{size:11},autoSkip:false,maxRotation:45};
+
+function fmt(v){ return '€'+Math.round(Math.abs(v)).toLocaleString(); }
+function fmtN(v){ return Math.round(v).toLocaleString(); }
+function diff(a,b){ const d=a-b; return (d>=0?'+':'')+fmt(d); }
+
+function metric(label,value,sub,subClass=''){
+  return `<div class="mc"><div class="ml">${label}</div><div class="mv">${value}</div>${sub?`<div class="ms ${subClass}">${sub}</div>`:''}</div>`;
+}
+
+function mkChart(id,cfg){
+  const ctx=document.getElementById(id);
+  if(!ctx) return;
+  if(charts[id]) charts[id].destroy();
+  charts[id]=new Chart(ctx,cfg);
+}
+
+function showTab(name){
+  ['overview','fth','hospitality','social'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('hidden',t!==name);
+  });
+  document.querySelectorAll('.tab').forEach((btn,i)=>{
+    btn.classList.toggle('on',['overview','fth','hospitality','social'][i]===name);
+  });
+}
+
+function findRow(rows,keyword){
+  return rows.find(r=>r[0]&&r[0].toString().toLowerCase().includes(keyword.toLowerCase()));
+}
+
+function getVals(row,weekCols){
+  if(!row) return weekCols.map(()=>0);
+  return weekCols.map(i=>{const v=parseFloat(row[i]);return isNaN(v)?0:v;});
+}
+
+function buildDashboard(rows){
+  const headerRowIdx=rows.findIndex(r=>r.some(c=>c&&c.toString().startsWith('CW')));
+  if(headerRowIdx<0){showError('Could not find week columns.');return;}
+  const headerRow=rows[headerRowIdx];
+  const weekCols=[],weeks=[];
+  headerRow.forEach((c,i)=>{if(c&&c.toString().startsWith('CW')){weeks.push(c.toString());weekCols.push(i);}});
+
+  function getSection(startKw,endKw){
+    const start=rows.findIndex(r=>r[0]&&r[0].toString().toLowerCase().includes(startKw.toLowerCase()));
+    const end=endKw?rows.findIndex((r,i)=>i>start&&r[0]&&r[0].toString().toLowerCase().includes(endKw.toLowerCase())):rows.length;
+    return start>-1?rows.slice(start,end>-1?end:rows.length):[];
+  }
+  function findIn(section,kw){
+    return section.find(r=>r[0]&&r[0].toString().toLowerCase().includes(kw.toLowerCase()));
+  }
+
+  const agriIs   = getVals(findRow(rows,'revenue is (without vat)'),weekCols);
+  const agriPlan = getVals(findRow(rows,'revenue plan'),weekCols);
+
+  const ppSec  = getSection('pão','raya');
+  const ppIs   = getVals(findIn(ppSec,'revenue is'),weekCols);
+  const ppPlan = getVals(findIn(ppSec,'weekly revenue plan'),weekCols);
+
+  const rayaSec  = getSection('raya','farm');
+  const rayaIs   = getVals(findIn(rayaSec,'revenue is'),weekCols);
+  const rayaPlan = getVals(findIn(rayaSec,'weekly revenue plan'),weekCols);
+
+  const fthSec  = getSection('farm to home','social');
+  const fthIs   = getVals(findIn(fthSec,'revenue is (net)'),weekCols);
+  const orders  = getVals(findIn(fthSec,'orders'),weekCols);
+  const newCust = getVals(findIn(fthSec,'new c'),weekCols);
+  const planCust= getVals(findIn(fthSec,'planned new'),weekCols);
+  const mobile  = getVals(findIn(fthSec,'mobile'),weekCols);
+  const desktop = getVals(findIn(fthSec,'computer'),weekCols);
+  const convRate= getVals(findIn(fthSec,'conversion rate'),weekCols);
+  const adTotal = getVals(findIn(fthSec,'advertise spending total'),weekCols);
+
+  const socialSec= getSection('social','newsletter');
+  const ig = getVals(findIn(socialSec,'instagram followers'),weekCols);
+  const fb = getVals(findIn(socialSec,'facebook followers'),weekCols);
+  const nlOpen = getVals(findRow(rows,'newsletter opening'),weekCols);
+
+  let cw=0;
+  orders.forEach((v,i)=>{if(v>0) cw=i;});
+
+  const agriYTD =agriIs.reduce((a,b)=>a+b,0);
+  const agriPYTD=agriPlan.reduce((a,b)=>a+b,0);
+  const ppYTD   =ppIs.reduce((a,b)=>a+b,0);
+  const ppPYTD  =ppPlan.reduce((a,b)=>a+b,0);
+  const fthYTD  =fthIs.reduce((a,b)=>a+b,0);
+  const rayaYTD =rayaIs.reduce((a,b)=>a+b,0);
+  const rayaPYTD=rayaPlan.reduce((a,b)=>a+b,0);
+  const adYTD   =adTotal.reduce((a,b)=>a+b,0);
+  const totalOrd=orders.reduce((a,b)=>a+b,0);
+  const totalCust=newCust.reduce((a,b)=>a+b,0);
+  const igLast=ig[cw]||0, igFirst=ig.find(v=>v>0)||0;
+  const fbLast=fb[cw]||0, fbFirst=fb.find(v=>v>0)||0;
+
+  document.getElementById('lastUpdated').textContent='Live from Google Sheets · '+weeks[cw];
+
+  document.getElementById('overview-metrics').innerHTML=
+    metric('Agriculture revenue',fmt(agriYTD),'vs '+fmt(agriPYTD)+' plan',agriYTD>=agriPYTD?'pos':'neg')+
+    metric('Pão & Pizza revenue',fmt(ppYTD),diff(ppYTD,ppPYTD)+' vs plan',ppYTD>=ppPYTD?'pos':'neg')+
+    metric('FTH revenue (net)',fmt(fthYTD),fmtN(totalCust)+' customers')+
+    metric('Raya revenue',fmt(rayaYTD),'2026 YTD')+
+    metric('FTH ad spend',fmt(adYTD),'YTD')+
+    metric('Total FTH orders',fmtN(totalOrd),'YTD');
+
+  mkChart('overviewChart',{type:'bar',data:{labels:weeks,datasets:[
+    {label:'Agriculture',data:agriIs,backgroundColor:'#378ADD'},
+    {label:'Pão & Pizza',data:ppIs,backgroundColor:'#1D9E75'},
+    {label:'Raya',data:rayaIs,backgroundColor:'#D85A30'},
+    {label:'Farm to Home',data:fthIs,backgroundColor:'#7F77DD'},
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v/1000)+'K'}}}}});
+
+  document.getElementById('fth-metrics').innerHTML=
+    metric('Total orders YTD',fmtN(totalOrd))+
+    metric('New customers',fmtN(totalCust))+
+    metric('Ad spend YTD',fmt(adYTD))+
+    metric('FTH revenue YTD',fmt(fthYTD));
+
+  const lMax=totalCust||1;
+  document.getElementById('loyalty-bars').innerHTML=[
+    {label:'1 order only',val:Math.round(totalCust*.46),color:'#378ADD'},
+    {label:'2–5 orders',val:Math.round(totalCust*.43),color:'#1D9E75'},
+    {label:'6–9 orders',val:Math.round(totalCust*.07),color:'#7F77DD'},
+    {label:'10+ orders',val:Math.round(totalCust*.04),color:'#D85A30'},
+  ].map(({label,val,color})=>`<div class="prow"><div class="plbl">${label}</div><div class="pbg"><div class="pfl" style="width:${Math.round(val/lMax*100)}%;background:${color}"></div></div><div class="pval">${fmtN(val)}</div></div>`).join('');
+
+  mkChart('fthChart',{type:'bar',data:{labels:weeks,datasets:[
+    {label:'Orders',data:orders,backgroundColor:'#378ADD'},
+    {label:'New customers',data:newCust,backgroundColor:'#1D9E75'},
+    {label:'Target',data:planCust,type:'line',borderColor:'#E24B4A',backgroundColor:'transparent',borderDash:[4,3],pointRadius:3}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:xTicks}}}});
+
+  mkChart('convChart',{type:'bar',data:{labels:weeks,datasets:[
+    {label:'Mobile',data:mobile,backgroundColor:'#7F77DD',stack:'s1'},
+    {label:'Desktop',data:desktop,backgroundColor:'#378ADD',stack:'s1'},
+    {label:'Conv %',data:convRate.map(v=>+(v*100).toFixed(2)),type:'line',borderColor:'#EF9F27',backgroundColor:'transparent',pointRadius:3,yAxisID:'y2'}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:xTicks},y:{stacked:true},y2:{position:'right',ticks:{callback:v=>v.toFixed(1)+'%'},grid:{display:false}}}}});
+
+  document.getElementById('pp-metrics').innerHTML=
+    metric('YTD revenue',fmt(ppYTD),diff(ppYTD,ppPYTD)+' vs plan',ppYTD>=ppPYTD?'pos':'neg');
+
+  mkChart('ppChart',{type:'bar',data:{labels:weeks,datasets:[
+    {label:'Actual',data:ppIs,backgroundColor:'#1D9E75'},
+    {label:'Plan',data:ppPlan,type:'line',borderColor:'#888780',borderDash:[5,3],backgroundColor:'transparent',pointRadius:0}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v)}}}}});
+
+  document.getElementById('raya-metrics').innerHTML=
+    metric('YTD revenue',fmt(rayaYTD),diff(rayaYTD,rayaPYTD)+' vs plan',rayaYTD>=rayaPYTD?'pos':'neg');
+
+  mkChart('rayaChart',{type:'bar',data:{labels:weeks,datasets:[
+    {label:'2026',data:rayaIs,backgroundColor:'#D85A30'},
+    {label:'Plan',data:rayaPlan,type:'line',borderColor:'#888780',borderDash:[5,3],backgroundColor:'transparent',pointRadius:0}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v)}}}}});
+
+  document.getElementById('social-metrics').innerHTML=
+    metric('Instagram',fmtN(igLast),'+'+fmtN(igLast-igFirst)+' since CW1','pos')+
+    metric('Facebook',fmtN(fbLast),'+'+fmtN(fbLast-fbFirst)+' since CW1','pos')+
+    metric('Newsletter open rate',(nlOpen[cw]*100).toFixed(1)+'%','Latest week');
+
+  mkChart('socialChart',{type:'line',data:{labels:weeks,datasets:[
+    {label:'Instagram',data:ig,borderColor:'#D85A30',backgroundColor:'transparent',pointRadius:3,yAxisID:'y'},
+    {label:'Facebook',data:fb,borderColor:'#378ADD',backgroundColor:'transparent',pointRadius:3,borderDash:[4,2],yAxisID:'y2'}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:{font:{size:11}}},y:{ticks:{callback:v=>(v/1000).toFixed(1)+'K'}},
+      y2:{position:'right',ticks:{callback:v=>(v/1000).toFixed(1)+'K'},grid:{display:false}}}}});
+
+  mkChart('nlChart',{type:'line',data:{labels:weeks,datasets:[
+    {label:'Open rate',data:nlOpen.map(v=>+(v*100).toFixed(1)),borderColor:'#7F77DD',backgroundColor:'rgba(127,119,221,0.08)',pointRadius:3,fill:true}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{ticks:{font:{size:11}}},y:{ticks:{callback:v=>v+'%'},min:0}}}});
+
+  document.getElementById('loadMsg').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+function showError(msg){
+  document.getElementById('loadMsg').classList.add('hidden');
+  const e=document.getElementById('errMsg');
+  e.textContent=msg;
+  e.classList.remove('hidden');
+}
+
+Papa.parse(CSV_URL,{
+  download:true,
+  complete:function(results){
+    try{ buildDashboard(results.data); }
+    catch(e){ showError('Could not parse sheet: '+e.message); }
+  },
+  error:function(err){ showError('Could not load Google Sheet: '+err.message); }
+});
+</script>
+</body>
+</html>
