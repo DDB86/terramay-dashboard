@@ -9,7 +9,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a18;font-size:15px}
-header{background:#fff;border-bottom:1px solid #e0ded7;padding:1.2rem 2rem;display:flex;align-items:center;justify-content:space-between}
+header{background:#fff;border-bottom:1px solid #e0ded7;padding:1.2rem 2rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 header h1{font-size:18px;font-weight:600}
 header span{font-size:13px;color:#888780}
 .container{max-width:1100px;margin:0 auto;padding:1.5rem 1.5rem 3rem}
@@ -39,6 +39,10 @@ header span{font-size:13px;color:#888780}
 .pval{font-size:12px;font-weight:500;color:#1a1a18;width:80px;text-align:right;flex-shrink:0}
 .loader{text-align:center;padding:3rem;color:#888780;font-size:14px}
 .err{text-align:center;padding:2rem;color:#E24B4A;font-size:14px}
+.week-selector{display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;flex-wrap:wrap}
+.week-selector label{font-size:12px;color:#888780}
+.week-selector select{font-size:13px;padding:5px 10px;border:1px solid #d3d1c7;border-radius:8px;background:#fff;color:#1a1a18;cursor:pointer}
+.debug{font-size:11px;color:#888780;padding:.5rem;background:#f9f9f9;border-radius:6px;margin-bottom:1rem;word-break:break-all}
 </style>
 </head>
 <body>
@@ -50,6 +54,10 @@ header span{font-size:13px;color:#888780}
   <div id="loadMsg" class="loader">Fetching live data from Google Sheets...</div>
   <div id="errMsg" class="err hidden"></div>
   <div id="app" class="hidden">
+    <div class="week-selector">
+      <label>View up to week:</label>
+      <select id="weekPicker" onchange="onWeekChange()"></select>
+    </div>
     <div class="tabs">
       <button class="tab on" onclick="showTab('overview')">Overview</button>
       <button class="tab" onclick="showTab('fth')">Farm to Home</button>
@@ -158,7 +166,9 @@ header span{font-size:13px;color:#888780}
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR5iFDFdh48EpGQRuVMTlvLRbBJDpQTP7F8d9yLef3DX5h7WVYwY8tQJLVPk20My9CqiGj5U7TKtMkn/pub?gid=376261813&single=true&output=csv';
 
 const charts = {};
-const xTicks = {font:{size:11},autoSkip:false,maxRotation:45};
+let globalData = null;
+let allWeeks = [];
+let selectedWeekIdx = 0;
 
 function fmt(v){ return '€'+Math.round(Math.abs(v)).toLocaleString(); }
 function fmtN(v){ return Math.round(v).toLocaleString(); }
@@ -184,8 +194,11 @@ function showTab(name){
   });
 }
 
+function norm(s){ return (s||'').toString().toLowerCase().replace(/\s+/g,' ').trim(); }
+
 function findRow(rows,keyword){
-  return rows.find(r=>r[0]&&r[0].toString().toLowerCase().includes(keyword.toLowerCase()));
+  const kw=norm(keyword);
+  return rows.find(r=>norm(r[0]).includes(kw));
 }
 
 function getVals(row,weekCols){
@@ -193,82 +206,79 @@ function getVals(row,weekCols){
   return weekCols.map(i=>{const v=parseFloat(row[i]);return isNaN(v)?0:v;});
 }
 
-function buildDashboard(rows){
-  const headerRowIdx=rows.findIndex(r=>r.some(c=>c&&c.toString().startsWith('CW')));
-  if(headerRowIdx<0){showError('Could not find week columns.');return;}
-  const headerRow=rows[headerRowIdx];
-  const weekCols=[],weeks=[];
-  headerRow.forEach((c,i)=>{if(c&&c.toString().startsWith('CW')){weeks.push(c.toString());weekCols.push(i);}});
+function sliceToWeek(arr,idx){
+  return arr.slice(0,idx+1);
+}
 
-  function getSection(startKw,endKw){
-    const start=rows.findIndex(r=>r[0]&&r[0].toString().toLowerCase().includes(startKw.toLowerCase()));
-    const end=endKw?rows.findIndex((r,i)=>i>start&&r[0]&&r[0].toString().toLowerCase().includes(endKw.toLowerCase())):rows.length;
-    return start>-1?rows.slice(start,end>-1?end:rows.length):[];
-  }
-  function findIn(section,kw){
-    return section.find(r=>r[0]&&r[0].toString().toLowerCase().includes(kw.toLowerCase()));
-  }
+function ytd(arr,idx){
+  return sliceToWeek(arr,idx).reduce((a,b)=>a+b,0);
+}
 
-  const agriIs   = getVals(findRow(rows,'revenue is (without vat)'),weekCols);
-  const agriPlan = getVals(findRow(rows,'revenue plan'),weekCols);
+function onWeekChange(){
+  selectedWeekIdx = parseInt(document.getElementById('weekPicker').value);
+  renderDashboard();
+}
 
-  const ppSec  = getSection('pão','raya');
-  const ppIs   = getVals(findIn(ppSec,'revenue is'),weekCols);
-  const ppPlan = getVals(findIn(ppSec,'weekly revenue plan'),weekCols);
+function renderDashboard(){
+  if(!globalData) return;
+  const d = globalData;
+  const idx = selectedWeekIdx;
+  const weeks = allWeeks.slice(0,idx+1);
+  const xTicks = {font:{size:11},autoSkip:weeks.length>20,maxRotation:45};
 
-  const rayaSec  = getSection('raya','farm');
-  const rayaIs   = getVals(findIn(rayaSec,'revenue is'),weekCols);
-  const rayaPlan = getVals(findIn(rayaSec,'weekly revenue plan'),weekCols);
+  // slice all series to selected week
+  const agriIs   = sliceToWeek(d.agriIs,   idx);
+  const agriPlan = sliceToWeek(d.agriPlan, idx);
+  const ppIs     = sliceToWeek(d.ppIs,     idx);
+  const ppPlan   = sliceToWeek(d.ppPlan,   idx);
+  const rayaIs   = sliceToWeek(d.rayaIs,   idx);
+  const rayaPlan = sliceToWeek(d.rayaPlan, idx);
+  const fthIs    = sliceToWeek(d.fthIs,    idx);
+  const orders   = sliceToWeek(d.orders,   idx);
+  const newCust  = sliceToWeek(d.newCust,  idx);
+  const planCust = sliceToWeek(d.planCust, idx);
+  const mobile   = sliceToWeek(d.mobile,   idx);
+  const desktop  = sliceToWeek(d.desktop,  idx);
+  const convRate = sliceToWeek(d.convRate, idx);
+  const adTotal  = sliceToWeek(d.adTotal,  idx);
+  const ig       = sliceToWeek(d.ig,       idx);
+  const fb       = sliceToWeek(d.fb,       idx);
+  const nlOpen   = sliceToWeek(d.nlOpen,   idx);
 
-  const fthSec  = getSection('farm to home','social');
-  const fthIs   = getVals(findIn(fthSec,'revenue is (net)'),weekCols);
-  const orders  = getVals(findIn(fthSec,'orders'),weekCols);
-  const newCust = getVals(findIn(fthSec,'new c'),weekCols);
-  const planCust= getVals(findIn(fthSec,'planned new'),weekCols);
-  const mobile  = getVals(findIn(fthSec,'mobile'),weekCols);
-  const desktop = getVals(findIn(fthSec,'computer'),weekCols);
-  const convRate= getVals(findIn(fthSec,'conversion rate'),weekCols);
-  const adTotal = getVals(findIn(fthSec,'advertise spending total'),weekCols);
+  const agriYTD  = agriIs.reduce((a,b)=>a+b,0);
+  const agriPYTD = agriPlan.reduce((a,b)=>a+b,0);
+  const ppYTD    = ppIs.reduce((a,b)=>a+b,0);
+  const ppPYTD   = ppPlan.reduce((a,b)=>a+b,0);
+  const fthYTD   = fthIs.reduce((a,b)=>a+b,0);
+  const rayaYTD  = rayaIs.reduce((a,b)=>a+b,0);
+  const rayaPYTD = rayaPlan.reduce((a,b)=>a+b,0);
+  const adYTD    = adTotal.reduce((a,b)=>a+b,0);
+  const totalOrd = orders.reduce((a,b)=>a+b,0);
+  const totalCust= newCust.reduce((a,b)=>a+b,0);
+  const igLast   = ig[idx]||0, igFirst=d.ig.find(v=>v>0)||0;
+  const fbLast   = fb[idx]||0, fbFirst=d.fb.find(v=>v>0)||0;
+  const nlLast   = nlOpen[idx]||0;
 
-  const socialSec= getSection('social','newsletter');
-  const ig = getVals(findIn(socialSec,'instagram followers'),weekCols);
-  const fb = getVals(findIn(socialSec,'facebook followers'),weekCols);
-  const nlOpen = getVals(findRow(rows,'newsletter opening'),weekCols);
+  document.getElementById('lastUpdated').textContent = 'Live · YTD to '+allWeeks[idx];
 
-  let cw=0;
-  orders.forEach((v,i)=>{if(v>0) cw=i;});
-
-  const agriYTD =agriIs.reduce((a,b)=>a+b,0);
-  const agriPYTD=agriPlan.reduce((a,b)=>a+b,0);
-  const ppYTD   =ppIs.reduce((a,b)=>a+b,0);
-  const ppPYTD  =ppPlan.reduce((a,b)=>a+b,0);
-  const fthYTD  =fthIs.reduce((a,b)=>a+b,0);
-  const rayaYTD =rayaIs.reduce((a,b)=>a+b,0);
-  const rayaPYTD=rayaPlan.reduce((a,b)=>a+b,0);
-  const adYTD   =adTotal.reduce((a,b)=>a+b,0);
-  const totalOrd=orders.reduce((a,b)=>a+b,0);
-  const totalCust=newCust.reduce((a,b)=>a+b,0);
-  const igLast=ig[cw]||0, igFirst=ig.find(v=>v>0)||0;
-  const fbLast=fb[cw]||0, fbFirst=fb.find(v=>v>0)||0;
-
-  document.getElementById('lastUpdated').textContent='Live from Google Sheets · '+weeks[cw];
-
+  // Overview
   document.getElementById('overview-metrics').innerHTML=
     metric('Agriculture revenue',fmt(agriYTD),'vs '+fmt(agriPYTD)+' plan',agriYTD>=agriPYTD?'pos':'neg')+
     metric('Pão & Pizza revenue',fmt(ppYTD),diff(ppYTD,ppPYTD)+' vs plan',ppYTD>=ppPYTD?'pos':'neg')+
     metric('FTH revenue (net)',fmt(fthYTD),fmtN(totalCust)+' customers')+
-    metric('Raya revenue',fmt(rayaYTD),'2026 YTD')+
+    metric('Raya revenue',fmt(rayaYTD),diff(rayaYTD,rayaPYTD)+' vs plan',rayaYTD>=rayaPYTD?'pos':'neg')+
     metric('FTH ad spend',fmt(adYTD),'YTD')+
     metric('Total FTH orders',fmtN(totalOrd),'YTD');
 
   mkChart('overviewChart',{type:'bar',data:{labels:weeks,datasets:[
-    {label:'Agriculture',data:agriIs,backgroundColor:'#378ADD'},
-    {label:'Pão & Pizza',data:ppIs,backgroundColor:'#1D9E75'},
-    {label:'Raya',data:rayaIs,backgroundColor:'#D85A30'},
-    {label:'Farm to Home',data:fthIs,backgroundColor:'#7F77DD'},
+    {label:'Agriculture', data:agriIs, backgroundColor:'#378ADD'},
+    {label:'Pão & Pizza', data:ppIs,   backgroundColor:'#1D9E75'},
+    {label:'Raya',        data:rayaIs, backgroundColor:'#D85A30'},
+    {label:'Farm to Home',data:fthIs,  backgroundColor:'#7F77DD'},
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v/1000)+'K'}}}}});
 
+  // FTH
   document.getElementById('fth-metrics').innerHTML=
     metric('Total orders YTD',fmtN(totalOrd))+
     metric('New customers',fmtN(totalCust))+
@@ -278,68 +288,144 @@ function buildDashboard(rows){
   const lMax=totalCust||1;
   document.getElementById('loyalty-bars').innerHTML=[
     {label:'1 order only',val:Math.round(totalCust*.46),color:'#378ADD'},
-    {label:'2–5 orders',val:Math.round(totalCust*.43),color:'#1D9E75'},
-    {label:'6–9 orders',val:Math.round(totalCust*.07),color:'#7F77DD'},
-    {label:'10+ orders',val:Math.round(totalCust*.04),color:'#D85A30'},
+    {label:'2–5 orders',  val:Math.round(totalCust*.43),color:'#1D9E75'},
+    {label:'6–9 orders',  val:Math.round(totalCust*.07),color:'#7F77DD'},
+    {label:'10+ orders',  val:Math.round(totalCust*.04),color:'#D85A30'},
   ].map(({label,val,color})=>`<div class="prow"><div class="plbl">${label}</div><div class="pbg"><div class="pfl" style="width:${Math.round(val/lMax*100)}%;background:${color}"></div></div><div class="pval">${fmtN(val)}</div></div>`).join('');
 
   mkChart('fthChart',{type:'bar',data:{labels:weeks,datasets:[
-    {label:'Orders',data:orders,backgroundColor:'#378ADD'},
-    {label:'New customers',data:newCust,backgroundColor:'#1D9E75'},
-    {label:'Target',data:planCust,type:'line',borderColor:'#E24B4A',backgroundColor:'transparent',borderDash:[4,3],pointRadius:3}
+    {label:'Orders',       data:orders,   backgroundColor:'#378ADD'},
+    {label:'New customers',data:newCust,  backgroundColor:'#1D9E75'},
+    {label:'Target',       data:planCust, type:'line',borderColor:'#E24B4A',backgroundColor:'transparent',borderDash:[4,3],pointRadius:3}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:xTicks}}}});
 
   mkChart('convChart',{type:'bar',data:{labels:weeks,datasets:[
-    {label:'Mobile',data:mobile,backgroundColor:'#7F77DD',stack:'s1'},
-    {label:'Desktop',data:desktop,backgroundColor:'#378ADD',stack:'s1'},
-    {label:'Conv %',data:convRate.map(v=>+(v*100).toFixed(2)),type:'line',borderColor:'#EF9F27',backgroundColor:'transparent',pointRadius:3,yAxisID:'y2'}
+    {label:'Mobile', data:mobile,  backgroundColor:'#7F77DD',stack:'s1'},
+    {label:'Desktop',data:desktop, backgroundColor:'#378ADD',stack:'s1'},
+    {label:'Conv %', data:convRate.map(v=>+(v*100).toFixed(2)),type:'line',borderColor:'#EF9F27',backgroundColor:'transparent',pointRadius:3,yAxisID:'y2'}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{x:{ticks:xTicks},y:{stacked:true},y2:{position:'right',ticks:{callback:v=>v.toFixed(1)+'%'},grid:{display:false}}}}});
 
+  // Hospitality
   document.getElementById('pp-metrics').innerHTML=
-    metric('YTD revenue',fmt(ppYTD),diff(ppYTD,ppPYTD)+' vs plan',ppYTD>=ppPYTD?'pos':'neg');
+    metric('YTD revenue',fmt(ppYTD),diff(ppYTD,ppPYTD)+' vs plan',ppYTD>=ppPYTD?'pos':'neg')+
+    metric('This week',fmt(ppIs[idx]||0),'CW'+allWeeks[idx]);
 
   mkChart('ppChart',{type:'bar',data:{labels:weeks,datasets:[
-    {label:'Actual',data:ppIs,backgroundColor:'#1D9E75'},
-    {label:'Plan',data:ppPlan,type:'line',borderColor:'#888780',borderDash:[5,3],backgroundColor:'transparent',pointRadius:0}
+    {label:'Actual',data:ppIs,  backgroundColor:'#1D9E75'},
+    {label:'Plan',  data:ppPlan,type:'line',borderColor:'#888780',borderDash:[5,3],backgroundColor:'transparent',pointRadius:0}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v)}}}}});
 
   document.getElementById('raya-metrics').innerHTML=
-    metric('YTD revenue',fmt(rayaYTD),diff(rayaYTD,rayaPYTD)+' vs plan',rayaYTD>=rayaPYTD?'pos':'neg');
+    metric('YTD revenue',fmt(rayaYTD),diff(rayaYTD,rayaPYTD)+' vs plan',rayaYTD>=rayaPYTD?'pos':'neg')+
+    metric('This week',fmt(rayaIs[idx]||0),'CW'+allWeeks[idx]);
 
   mkChart('rayaChart',{type:'bar',data:{labels:weeks,datasets:[
-    {label:'2026',data:rayaIs,backgroundColor:'#D85A30'},
+    {label:'2026',data:rayaIs,  backgroundColor:'#D85A30'},
     {label:'Plan',data:rayaPlan,type:'line',borderColor:'#888780',borderDash:[5,3],backgroundColor:'transparent',pointRadius:0}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{x:{ticks:xTicks},y:{ticks:{callback:v=>'€'+Math.round(v)}}}}});
 
+  // Social
   document.getElementById('social-metrics').innerHTML=
     metric('Instagram',fmtN(igLast),'+'+fmtN(igLast-igFirst)+' since CW1','pos')+
-    metric('Facebook',fmtN(fbLast),'+'+fmtN(fbLast-fbFirst)+' since CW1','pos')+
-    metric('Newsletter open rate',(nlOpen[cw]*100).toFixed(1)+'%','Latest week');
+    metric('Facebook', fmtN(fbLast),'+'+fmtN(fbLast-fbFirst)+' since CW1','pos')+
+    metric('Newsletter open rate',(nlLast*100).toFixed(1)+'%','Latest week');
 
   mkChart('socialChart',{type:'line',data:{labels:weeks,datasets:[
     {label:'Instagram',data:ig,borderColor:'#D85A30',backgroundColor:'transparent',pointRadius:3,yAxisID:'y'},
-    {label:'Facebook',data:fb,borderColor:'#378ADD',backgroundColor:'transparent',pointRadius:3,borderDash:[4,2],yAxisID:'y2'}
+    {label:'Facebook', data:fb,borderColor:'#378ADD',backgroundColor:'transparent',pointRadius:3,borderDash:[4,2],yAxisID:'y2'}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
-    scales:{x:{ticks:{font:{size:11}}},y:{ticks:{callback:v=>(v/1000).toFixed(1)+'K'}},
+    scales:{x:{ticks:{font:{size:11}}},
+      y:{ticks:{callback:v=>(v/1000).toFixed(1)+'K'}},
       y2:{position:'right',ticks:{callback:v=>(v/1000).toFixed(1)+'K'},grid:{display:false}}}}});
 
   mkChart('nlChart',{type:'line',data:{labels:weeks,datasets:[
     {label:'Open rate',data:nlOpen.map(v=>+(v*100).toFixed(1)),borderColor:'#7F77DD',backgroundColor:'rgba(127,119,221,0.08)',pointRadius:3,fill:true}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
     scales:{x:{ticks:{font:{size:11}}},y:{ticks:{callback:v=>v+'%'},min:0}}}});
+}
+
+function buildDashboard(rows){
+  // Find header row with CW columns
+  const headerRowIdx = rows.findIndex(r=>r.some(c=>c&&c.toString().match(/^CW\d+$/)));
+  if(headerRowIdx<0){showError('Could not find week columns (CW1, CW2...) in your sheet.');return;}
+
+  const headerRow = rows[headerRowIdx];
+  const weekCols=[], weeks=[];
+  headerRow.forEach((c,i)=>{
+    if(c&&c.toString().match(/^CW\d+$/)){
+      weeks.push(c.toString());
+      weekCols.push(i);
+    }
+  });
+
+  function getSection(startKw, endKw){
+    const start=rows.findIndex(r=>norm(r[0]).includes(norm(startKw)));
+    if(start<0) return [];
+    const end=endKw?rows.findIndex((r,i)=>i>start&&norm(r[0]).includes(norm(endKw))):rows.length;
+    return rows.slice(start, end>-1?end:rows.length);
+  }
+
+  function findIn(section,kw){
+    return section.find(r=>norm(r[0]).includes(norm(kw)));
+  }
+
+  function gv(row){ return getVals(row, weekCols); }
+
+  const agriSec  = getSection('agriculture','pão');
+  const ppSec    = getSection('pão','raya');
+  const rayaSec  = getSection('raya','farm');
+  const fthSec   = getSection('farm to home','social');
+  const socialSec= getSection('social','newsletter');
+
+  const agriIs   = gv(findIn(agriSec,'revenue is'));
+  const agriPlan = gv(findIn(agriSec,'revenue plan'));
+  const ppIs     = gv(findIn(ppSec,'revenue is'));
+  const ppPlan   = gv(findIn(ppSec,'weekly revenue plan')||findIn(ppSec,'revenue plan'));
+  const rayaIs   = gv(findIn(rayaSec,'revenue is'));
+  const rayaPlan = gv(findIn(rayaSec,'weekly revenue plan')||findIn(rayaSec,'revenue plan'));
+  const fthIs    = gv(findIn(fthSec,'revenue is (net)')||findIn(fthSec,'revenue is'));
+  const orders   = gv(findIn(fthSec,'orders'));
+  const newCust  = gv(findIn(fthSec,'new c'));
+  const planCust = gv(findIn(fthSec,'planned new'));
+  const mobile   = gv(findIn(fthSec,'mobile'));
+  const desktop  = gv(findIn(fthSec,'computer'));
+  const convRate = gv(findIn(fthSec,'conversion rate'));
+  const adTotal  = gv(findIn(fthSec,'advertise spending total')||findIn(fthSec,'ad spend'));
+  const ig       = gv(findIn(socialSec,'instagram'));
+  const fb       = gv(findIn(socialSec,'facebook'));
+  const nlOpen   = gv(findRow(rows,'newsletter opening')||findRow(rows,'open rate'));
+
+  // Find last week with any data
+  let lastDataIdx = 0;
+  for(let i=0;i<weeks.length;i++){
+    if((agriIs[i]||0)+(ppIs[i]||0)+(fthIs[i]||0)+(orders[i]||0)+(ig[i]||0)>0) lastDataIdx=i;
+  }
+
+  globalData = {agriIs,agriPlan,ppIs,ppPlan,rayaIs,rayaPlan,fthIs,orders,newCust,planCust,mobile,desktop,convRate,adTotal,ig,fb,nlOpen};
+  allWeeks = weeks;
+  selectedWeekIdx = lastDataIdx;
+
+  // Populate week picker
+  const picker = document.getElementById('weekPicker');
+  weeks.forEach((w,i)=>{
+    const opt=document.createElement('option');
+    opt.value=i; opt.textContent=w;
+    if(i===lastDataIdx) opt.selected=true;
+    picker.appendChild(opt);
+  });
 
   document.getElementById('loadMsg').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  renderDashboard();
 }
 
 function showError(msg){
   document.getElementById('loadMsg').classList.add('hidden');
   const e=document.getElementById('errMsg');
-  e.textContent=msg;
-  e.classList.remove('hidden');
+  e.textContent=msg; e.classList.remove('hidden');
 }
 
 Papa.parse(CSV_URL,{
